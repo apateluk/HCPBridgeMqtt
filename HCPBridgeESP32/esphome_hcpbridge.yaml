@@ -4,7 +4,8 @@ substitutions:
   friendly_name: "Garage Door"
   connection_state: "${name} Connected"
   relay_name: "${friendly_name} Relay state"
-  light: "${friendly_name} Light"
+  # Renamed from "light" so the substitution name does not shadow the light: component block
+  light_name: "${friendly_name} Light"
   btn_vent: "${friendly_name} Vent" 
   btn_half: "${friendly_name} Half" 
   btn_impulse: "${friendly_name} Impulse" 
@@ -18,20 +19,22 @@ esphome:
   friendly_name: "${friendly_name}"
   project:
     name: "gifford47.hcpbridge"
-    version: "1.0.0"
+    version: "1.0.1"
   libraries:
     - emelianov/modbus-esp8266
   platformio_options:
     board_build.f_cpu: 240000000L
-    board_build.arduino.memory_type: qio_qspi
-    board_build.flash_mode: qio
-    board_build.psram_type: qio
+    # 4 MB upload limit - must match the flash_size set under esp32:
     board_upload.maximum_size: 4194304
-    board_build.extra_flags: -DBOARD_HAS_PSRAM
+    # NOTE: PSRAM is no longer enabled via raw -DBOARD_HAS_PSRAM here.
+    # It is configured the idiomatic way through the psram: block below.
 
 external_components:
   - source: github://Gifford47/esphome-hcpbridge
     refresh: 0s
+  # Pin the core "uart" component to a fixed ESPHome release for a stable API.
+  # IMPORTANT: keep this version aligned with your installed ESPHome version -
+  # pulling a core component from a different release can break the build.
   - source: github://esphome/esphome@2025.9.3
     refresh: 0s
     components: [uart]
@@ -41,6 +44,13 @@ esp32:
   flash_size: 4MB
   framework:
     type: arduino
+
+# PSRAM - the idiomatic ESPHome way (replaces the raw -DBOARD_HAS_PSRAM flag).
+# ONLY enable this if your board physically has PSRAM (e.g. ESP32-S3 N4R2 / N8R8).
+# On a board WITHOUT PSRAM this will cause boot loops - delete this whole block instead.
+#psram:
+#  mode: quad      # use "octal" for octal-PSRAM modules (e.g. N8R8)
+#  speed: 80MHz
 
 i2c:
   sda: GPIO06
@@ -78,7 +88,7 @@ light:
   - platform: hcpbridge
     id: gd_light
     output: output_light
-    name: ${light}
+    name: ${light_name}
 
 button:
   - platform: hcpbridge
@@ -133,35 +143,39 @@ sensor:
       name: "BME280 Humidity"
     address: 0x76 # can be 0x77 as well
     update_interval: 30s
-  - platform: dht
-    pin: GPIO04
-    temperature:
-      name: "DHT Temperature"
-    humidity:
-      name: "DHT Humidity"
-    update_interval: 30s
+  # DHT disabled by default: the BME280 above already provides temperature + humidity.
+  # Enable this block ONLY if you actually have a DHT sensor wired to GPIO04.
+  # Running both with only one sensor physically present spams read errors in the log.
+  # - platform: dht
+  #   pin: GPIO04
+  #   temperature:
+  #     name: "DHT Temperature"
+  #   humidity:
+  #     name: "DHT Humidity"
+  #   update_interval: 30s
 
 api:
   encryption:
     key: !secret api_key
-  services:
-    - service: go_to_open
+  # "actions" is the current key - it replaces "services", which is deprecated since ESPHome 2025.x
+  actions:
+    - action: go_to_open
       then:
         - lambda: |-
             id(garagedoor_cover).on_go_to_open();
-    - service: go_to_close
+    - action: go_to_close
       then:
         - lambda: |-
             id(garagedoor_cover).on_go_to_close();
-    - service: go_to_half
+    - action: go_to_half
       then:
         - lambda: |-
             id(garagedoor_cover).on_go_to_half();
-    - service: go_to_vent
+    - action: go_to_vent
       then:
         - lambda: |-
             id(garagedoor_cover).on_go_to_vent();
-    - service: toggle
+    - action: toggle
       then:
         - cover.toggle: garagedoor_cover
 
